@@ -21,6 +21,18 @@
 
 4. **백테스트**: 매월 말 상위 20개를 동일 비중으로 리밸런싱, 매매비용 0.3% 차감, KOSPI200과 비교
 
+## 단기 스윙 (며칠~2주 보유)
+
+`python main.py swing` 이 매일 신호를 `reports/swing-latest.md` 로 만듭니다.
+
+| 셋업 | 매수 조건 (당일 종가 기준 → 다음날 시가 매수) | 매도 |
+|---|---|---|
+| 눌림목 | 종가 > 120일선, 20일선 > 60일선, RSI(2) < 10 | 종가 > 5일선이면 다음날 시가 · 손절 -7% · 최대 10거래일 |
+| 돌파 | 20일 고가 돌파, 거래량 ≥ 20일 평균 x2, 양봉, 종가 > 60일선 (상한가 제외) | 종가 < 10일선이면 다음날 시가 · 손절 매수가 - 2×ATR · 최대 15거래일 |
+
+공통 필터: 20일 평균 거래대금 10억 이상, 주가 1,000원 이상.
+`python main.py swing-backtest --years 3` 으로 두 셋업의 과거 성과(동시 5종목, 왕복 비용 0.5%)를 비교합니다.
+
 ## 데이터 소스
 
 | 소스 | 필요한 것 | 특징 |
@@ -39,6 +51,8 @@ pip install -r requirements.txt
 ```bash
 python main.py report              # 오늘의 점수 리포트 → reports/YYYY-MM-DD.md, reports/latest.md
 python main.py backtest --years 5  # 백테스트 → reports/backtest.md
+python main.py swing               # 단기 스윙 신호 → reports/swing-latest.md
+python main.py swing-backtest      # 스윙 백테스트 → reports/swing-backtest.md
 python -m pytest -q                # 오프라인 테스트
 ```
 

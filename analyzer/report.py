@@ -47,3 +47,68 @@ def backtest_report(summary: dict, holdings: dict, names: pd.Series, period: str
         lines += ["", f"## 마지막 리밸런싱 ({pd.Timestamp(last_day):%Y-%m-%d}) 보유 종목", "",
                   ", ".join(f"{names.get(t, t)}({t})" for t in picks)]
     return "\n".join(lines) + "\n"
+
+
+SWING_RULES = {
+    "pullback": ("상승 추세(종가 > 120일선, 20일선 > 60일선)에서 RSI(2) < 10 으로 단기 급락",
+                 "종가가 5일선 위로 올라오면 다음날 시가 매도 · 최대 10거래일"),
+    "breakout": ("20일 최고가 돌파 + 거래량 20일 평균의 2배 이상 + 양봉 (상한가 제외)",
+                 "종가가 10일선 아래로 내려가면 다음날 시가 매도 · 최대 15거래일"),
+}
+
+
+def swing_report(date: str, signals: dict, names: pd.Series, universe_size: int) -> str:
+    from .swing import SETUP_NAMES
+    d = pd.Timestamp(date).strftime("%Y-%m-%d")
+    lines = [f"# 단기 스윙 신호 ({d})", "", DISCLAIMER, "",
+             f"- 분석 대상: 코스피·코스닥 {universe_size}개 종목 (20일 평균 거래대금 10억 이상, 1,000원 이상)",
+             "- 매수: 오늘 신호가 뜬 종목을 **다음 거래일 시가**에 매수 (아래는 우선순위 순)",
+             "- 손절가는 오늘 종가 기준 참고값이며, 실제로는 매수가 기준으로 다시 계산하세요.", ""]
+    for setup, df in signals.items():
+        cond, exit_rule = SWING_RULES[setup]
+        lines += [f"## {SETUP_NAMES[setup]} ({len(df)}개 표시)", "",
+                  f"- 조건: {cond}", f"- 매도: {exit_rule} · 손절가 이탈 시 즉시 손절", ""]
+        if df.empty:
+            lines += ["오늘은 신호 없음", ""]
+            continue
+        lines += ["| 순위 | 종목 | 코드 | 종가 | 손절가(참고) | 손절폭 | RSI(2) | 거래량 배수 | 20일 평균 거래대금 |",
+                  "|---:|---|---|---:|---:|---:|---:|---:|---:|"]
+        for i, r in enumerate(df.itertuples(), 1):
+            lines.append(
+                f"| {i} | {names.get(r.ticker, r.ticker)} | {r.ticker} | {r.close:,.0f} | {r.stop:,.0f} | "
+                f"{(r.stop / r.close - 1) * 100:.1f}% | {_num(r.rsi2)} | {_num(r.vol_ratio)}x | "
+                f"{r.trade_value / 1e8:,.0f}억 |")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def swing_backtest_report(results: dict, period: str, cfg) -> str:
+    from .swing import SETUP_NAMES
+    lines = [f"# 단기 스윙 백테스트 ({period})", "", DISCLAIMER, "",
+             "> 현재 상장된 종목으로만 테스트하므로(상장폐지 종목 누락) 실제보다 좋게 나올 수 있습니다.",
+             f"> 동시 보유 최대 {cfg.max_positions}종목(균등 분할), 왕복 비용 {cfg.cost_roundtrip * 100:.1f}% 반영, "
+             "신호 다음날 시가 매수.", ""]
+    cols = {SETUP_NAMES[k]: v.summary()["전략"] for k, v in results.items()}
+    first = next(iter(results.values())).summary()
+    if "벤치마크" in first:
+        cols["코스피200"] = first["벤치마크"]
+    keys = []
+    for v in cols.values():
+        keys += [k for k in v if k not in keys]
+    lines += ["| 지표 | " + " | ".join(cols) + " |", "|---|" + "---:|" * len(cols)]
+    for k in keys:
+        cells = []
+        for v in cols.values():
+            x = v.get(k)
+            if x is None:
+                cells.append("-")
+            elif k == "샤프":
+                cells.append(f"{x:.2f}")
+            elif k in ("거래 수",):
+                cells.append(f"{x:,.0f}")
+            elif k == "평균 보유일":
+                cells.append(f"{x:.1f}일")
+            else:
+                cells.append(f"{x * 100:.1f}%")
+        lines.append(f"| {k} | " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"

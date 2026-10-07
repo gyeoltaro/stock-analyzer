@@ -62,6 +62,23 @@ def close_prices(tickers, start: str, end: str, pause: float = 0.2) -> pd.DataFr
     return pd.DataFrame(series).sort_index().astype(float)
 
 
+def ohlcv_frames(tickers, start: str, end: str, pause: float = 0.2) -> dict:
+    stock = _krx()
+    out = {}
+    for i, t in enumerate(tickers, 1):
+        try:
+            df = stock.get_market_ohlcv(start, end, t, adjusted=True)
+            if not df.empty:
+                out[t] = df
+        except Exception as e:
+            print(f"[warn] {t} 일봉 조회 실패: {e}")
+        if pause:
+            time.sleep(pause)
+        if i % 100 == 0:
+            print(f"  일봉 {i}/{len(tickers)}")
+    return out
+
+
 def fundamentals(date: str) -> pd.DataFrame:
     """PER, PBR, DIV 등. index=ticker."""
     return _krx().get_market_fundamental(date, market="ALL")

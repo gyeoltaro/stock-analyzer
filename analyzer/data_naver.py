@@ -166,6 +166,12 @@ def close_prices(tickers, start: str, end: str) -> pd.DataFrame:
     return pd.DataFrame(series).sort_index()
 
 
+def ohlcv_frames(tickers, start: str, end: str) -> dict:
+    """{ticker: 일봉 DataFrame}. 빈 결과는 제외."""
+    got = _fetch_many(lambda t: ohlcv(t, start, end), tickers, "일봉")
+    return {t: df for t, df in got.items() if df is not None and not df.empty}
+
+
 def fundamentals(date: str, tickers=None) -> pd.DataFrame:
     """현재 PER, PBR (네이버는 과거 시점 조회 불가, date는 무시)."""
     def one(t):

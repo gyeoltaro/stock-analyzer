@@ -1,6 +1,8 @@
 """사용법:
   python main.py report   [--date YYYYMMDD] [--universe 0] [--top 20]
   python main.py backtest [--years 5] [--universe 0] [--top 20]
+  python main.py swing           # 오늘의 단기 스윙 신호
+  python main.py swing-backtest [--years 3]
 
 --universe 0 은 전 종목, N 이면 시가총액 상위 N개.
 """
@@ -9,8 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from analyzer import backtest, data
-from analyzer.report import backtest_report, daily_report
+from analyzer import backtest, data, swing
+from analyzer.report import backtest_report, daily_report, swing_backtest_report, swing_report
 from analyzer.scoring import ScoreConfig, score, technical_candidates
 
 REPORTS = Path(__file__).parent / "reports"
@@ -67,6 +69,35 @@ def cmd_backtest(args):
     print(md)
 
 
+def cmd_swing(args):
+    date = data.latest_business_day(args.date)
+    print(f"기준일 {date}, 유니버스 조회 중...")
+    uni = data.universe(date, args.universe)
+    px = data.ohlcv_panel(uni.index, data.lookback_start(date, 260), date)
+    sig = swing.today_signals(px, swing.SwingConfig(), args.top)
+    md = swing_report(date, sig, uni["name"], len(uni))
+    REPORTS.mkdir(exist_ok=True)
+    (REPORTS / f"swing-{pd.Timestamp(date):%Y-%m-%d}.md").write_text(md, encoding="utf-8")
+    (REPORTS / "swing-latest.md").write_text(md, encoding="utf-8")
+    print(md)
+
+
+def cmd_swing_backtest(args):
+    end = data.latest_business_day(args.date)
+    test_start = data.lookback_start(end, int(args.years * 365))
+    fetch_start = data.lookback_start(test_start, 220)  # 120일선 계산용
+    print(f"스윙 백테스트 {test_start}~{end}, 유니버스 조회 중...")
+    uni = data.universe(end, args.universe)
+    px = data.ohlcv_panel(uni.index, fetch_start, end)
+    bench = data.benchmark(fetch_start, end)
+    cfg = swing.SwingConfig(max_positions=args.positions, cost_roundtrip=args.cost)
+    results = {s: swing.backtest(px, s, cfg, start=test_start, benchmark=bench) for s in swing.SETUPS}
+    md = swing_backtest_report(results, f"{test_start}~{end}", cfg)
+    REPORTS.mkdir(exist_ok=True)
+    (REPORTS / "swing-backtest.md").write_text(md, encoding="utf-8")
+    print(md)
+
+
 def main():
     p = argparse.ArgumentParser(description="한국 주식 규칙 기반 분석")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -82,6 +113,18 @@ def main():
     b.add_argument("--top", type=int, default=20)
     b.add_argument("--cost", type=float, default=0.003)
     b.set_defaults(func=cmd_backtest)
+    sw = sub.add_parser("swing", help="오늘의 단기 스윙 신호")
+    sw.add_argument("--date")
+    sw.add_argument("--universe", type=int, default=0, help="0=전 종목")
+    sw.add_argument("--top", type=int, default=10)
+    sw.set_defaults(func=cmd_swing)
+    sb = sub.add_parser("swing-backtest", help="단기 스윙 백테스트")
+    sb.add_argument("--date")
+    sb.add_argument("--years", type=float, default=3)
+    sb.add_argument("--universe", type=int, default=0, help="0=전 종목")
+    sb.add_argument("--positions", type=int, default=5)
+    sb.add_argument("--cost", type=float, default=0.005)
+    sb.set_defaults(func=cmd_swing_backtest)
     args = p.parse_args()
     print(f"데이터 소스: {data.source_name()}")
     args.func(args)

@@ -49,6 +49,24 @@ def close_prices(tickers, start, end):
     return _src().close_prices(tickers, start, end)
 
 
+FIELDS = {"open": "시가", "high": "고가", "low": "저가", "close": "종가", "volume": "거래량"}
+
+
+def build_panel(frames: dict) -> dict:
+    """{ticker: 일봉 DataFrame(시가·고가·저가·종가·거래량)} -> {필드: 날짜 x 종목 DataFrame}."""
+    panel = {}
+    for key, col in FIELDS.items():
+        wide = pd.DataFrame({t: df[col] for t, df in frames.items() if col in df}).sort_index().astype(float)
+        if key != "volume":
+            wide = wide.where(wide > 0)  # 거래정지일 0 가격은 결측
+        panel[key] = wide
+    return panel
+
+
+def ohlcv_panel(tickers, start, end) -> dict:
+    return build_panel(_src().ohlcv_frames(tickers, start, end))
+
+
 def fundamentals(date, tickers=None):
     if source_name() == "naver":
         return _src().fundamentals(date, tickers)
