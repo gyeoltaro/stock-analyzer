@@ -102,7 +102,13 @@ def market_sum(pages_kospi: int = 4, pages_kosdaq: int = 2) -> pd.DataFrame:
             r = _session.get(MARKET_SUM, params={"sosok": sosok, "page": page}, timeout=15)
             r.raise_for_status()
             html = r.content.decode("euc-kr", errors="replace")
-            frames.append(parse_market_sum(html))
+            parsed = parse_market_sum(html)
+            if parsed.empty:
+                i = html.find("code=")
+                snippet = html[max(0, i - 600): i + 1500] if i >= 0 else html[:2000]
+                raise RuntimeError(f"시가총액 표 파싱 실패 (sosok={sosok}, page={page}, "
+                                   f"status={r.status_code}, len={len(html)}):\n{snippet}")
+            frames.append(parsed)
             time.sleep(0.2)
     df = pd.concat(frames)
     return df[~df.index.duplicated()]
