@@ -110,6 +110,7 @@ def parse_market_value(payload: dict) -> pd.DataFrame:
         rows.append({
             "ticker": st["itemCode"],
             "name": st.get("stockName", ""),
+            "market": "코스피" if str(st.get("sosok")) == "0" else "코스닥",
             "close": _to_num(st.get("closePriceRaw")),
             "market_cap": _to_num(st.get("marketValueRaw")),
             "trading_value": _to_num(st.get("accumulatedTradingValueRaw")),
@@ -140,6 +141,13 @@ def parse_integration(payload: dict) -> dict:
     info = {i.get("code"): i.get("value") for i in payload.get("totalInfos") or []}
     return {"PER": _to_num(info.get("per")), "PBR": _to_num(info.get("pbr")),
             "DIV": _to_num(info.get("dividendYieldRatio"))}
+
+
+def integration_info(ticker: str) -> dict:
+    """종목 상세 지표 원문 {코드: (이름, 값, 기준일)}."""
+    payload = _get_json_or_text(INTEGRATION.format(ticker=ticker))
+    return {i.get("code"): (i.get("key"), i.get("value"), i.get("valueDesc"))
+            for i in payload.get("totalInfos") or []}
 
 
 def universe(date: str, top_n: int | None = None, min_trading_value: float = 1e8) -> pd.DataFrame:

@@ -54,6 +54,7 @@ python main.py report              # 오늘의 점수 리포트 → reports/YYYY
 python main.py backtest --years 5  # 백테스트 → reports/backtest.md
 python main.py swing               # 단기 스윙 신호 → reports/swing-latest.md
 python main.py swing-backtest      # 스윙 백테스트 → reports/swing-backtest.md
+python main.py lookup 삼성전자     # 종목 평가 → reports/lookup-삼성전자.md
 python -m pytest -q                # 오프라인 테스트
 ```
 

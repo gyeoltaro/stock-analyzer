@@ -108,6 +108,28 @@ def cmd_swing_backtest(args):
     print(md)
 
 
+def cmd_lookup(args):
+    from analyzer import data_naver, lookup
+    listing = data_naver.market_value_ranking()
+    hits = lookup.find(listing, args.query).head(args.max)
+    rows = []
+    end = data_naver.latest_business_day()
+    start = data.lookback_start(end, 400)
+    for t, h in hits.iterrows():
+        df = data_naver.ohlcv(t, start, end)
+        if df.empty:
+            continue
+        info = data_naver.integration_info(t)
+        st = lookup.price_stats(df)
+        rows.append({"ticker": t, "name": h["name"], "market": h["market"], "stats": st, "info": info,
+                     "checks": lookup.checklist(info, st, h["market_cap"])})
+    md = lookup.render(args.query, rows)
+    REPORTS.mkdir(exist_ok=True)
+    safe = "".join(ch for ch in args.query if ch.isalnum())
+    (REPORTS / f"lookup-{safe}.md").write_text(md, encoding="utf-8")
+    print(md)
+
+
 def main():
     p = argparse.ArgumentParser(description="한국 주식 규칙 기반 분석")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -139,6 +161,10 @@ def main():
     sb.add_argument("--sl", type=float, default=None, help="고정 손절 (예 0.05)")
     sb.add_argument("--max-hold", type=int, default=60, help="고정 모드 최대 보유 거래일")
     sb.set_defaults(func=cmd_swing_backtest)
+    lk = sub.add_parser("lookup", help="종목 이름으로 찾아 평가")
+    lk.add_argument("query")
+    lk.add_argument("--max", type=int, default=5)
+    lk.set_defaults(func=cmd_lookup)
     args = p.parse_args()
     print(f"데이터 소스: {data.source_name()}")
     args.func(args)

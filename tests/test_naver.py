@@ -10,7 +10,7 @@ SISE = """
 """
 
 MARKET = {"stocks": [
-    {"stockEndType": "stock", "itemCode": "005930", "stockName": "삼성전자",
+    {"stockEndType": "stock", "itemCode": "005930", "stockName": "삼성전자", "sosok": "0",
      "closePriceRaw": "268500", "accumulatedTradingValueRaw": "4420466000000",
      "marketValueRaw": "1569725806248000"},
     {"stockEndType": "etf", "itemCode": "069500", "stockName": "KODEX 200",
@@ -34,7 +34,7 @@ def test_parse_market_value_skips_non_stock():
     df = data_naver.parse_market_value(MARKET)
     assert list(df.index) == ["005930"]
     r = df.loc["005930"]
-    assert r["name"] == "삼성전자"
+    assert r["name"] == "삼성전자" and r["market"] == "코스피"
     assert r["market_cap"] == 1569725806248000
     assert r["trading_value"] == 4420466000000
 
