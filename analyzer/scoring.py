@@ -60,19 +60,29 @@ def compute_factors(close: pd.DataFrame, fundamentals: pd.DataFrame | None, cfg:
     return f
 
 
+def technical_candidates(close: pd.DataFrame, cfg: ScoreConfig | None = None) -> list:
+    """가격 조건(추세·과열·이력)만으로 거른 후보. 재무지표 조회 대상을 줄이는 데 쓴다."""
+    cfg = cfg or ScoreConfig()
+    f = compute_factors(close, None, cfg)
+    return list(f.index[_eligible(f, cfg)])
+
+
+def _eligible(f: pd.DataFrame, cfg: ScoreConfig) -> pd.Series:
+    return (
+        (f["history"] >= MIN_HISTORY)
+        & f["above_trend"].fillna(False).astype(bool)
+        & (f["rsi"] < cfg.rsi_max)
+        & f["mom_12_1"].notna()
+    )
+
+
 def score(close: pd.DataFrame, fundamentals: pd.DataFrame | None = None,
           cfg: ScoreConfig | None = None) -> pd.DataFrame:
     """필터를 통과한 종목을 점수 내림차순으로 반환한다."""
     cfg = cfg or ScoreConfig()
     f = compute_factors(close, fundamentals, cfg)
 
-    eligible = (
-        (f["history"] >= MIN_HISTORY)
-        & f["above_trend"].fillna(False).astype(bool)
-        & (f["rsi"] < cfg.rsi_max)
-        & f["mom_12_1"].notna()
-    )
-    f = f[eligible].copy()
+    f = f[_eligible(f, cfg)].copy()
     if f.empty:
         return f
 

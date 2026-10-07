@@ -1,6 +1,8 @@
 """사용법:
-  python main.py report   [--date YYYYMMDD] [--universe 200] [--top 20]
-  python main.py backtest [--years 5] [--universe 100] [--top 20]
+  python main.py report   [--date YYYYMMDD] [--universe 0] [--top 20]
+  python main.py backtest [--years 5] [--universe 0] [--top 20]
+
+--universe 0 은 전 종목, N 이면 시가총액 상위 N개.
 """
 import argparse
 from pathlib import Path
@@ -9,7 +11,7 @@ import pandas as pd
 
 from analyzer import backtest, data
 from analyzer.report import backtest_report, daily_report
-from analyzer.scoring import ScoreConfig, score
+from analyzer.scoring import ScoreConfig, score, technical_candidates
 
 REPORTS = Path(__file__).parent / "reports"
 
@@ -19,8 +21,10 @@ def cmd_report(args):
     print(f"기준일 {date}, 유니버스 조회 중...")
     uni = data.universe(date, args.universe)
     close = data.close_prices(uni.index, data.lookback_start(date, 420), date)
-    fund = data.fundamentals(date, list(close.columns))
     cfg = ScoreConfig(top_n=args.top)
+    candidates = technical_candidates(close, cfg)
+    print(f"가격 조건 통과 {len(candidates)}개, 재무지표 조회 중...")
+    fund = data.fundamentals(date, candidates)
     ranked = score(close, fund, cfg)
     md = daily_report(date, ranked, uni["name"], len(uni), args.top)
     REPORTS.mkdir(exist_ok=True)
@@ -68,13 +72,13 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("report", help="오늘의 종목 점수 리포트")
     r.add_argument("--date")
-    r.add_argument("--universe", type=int, default=200)
+    r.add_argument("--universe", type=int, default=0, help="0=전 종목")
     r.add_argument("--top", type=int, default=20)
     r.set_defaults(func=cmd_report)
     b = sub.add_parser("backtest", help="월간 리밸런싱 백테스트")
     b.add_argument("--date")
     b.add_argument("--years", type=float, default=5)
-    b.add_argument("--universe", type=int, default=100)
+    b.add_argument("--universe", type=int, default=0, help="0=전 종목")
     b.add_argument("--top", type=int, default=20)
     b.add_argument("--cost", type=float, default=0.003)
     b.set_defaults(func=cmd_backtest)

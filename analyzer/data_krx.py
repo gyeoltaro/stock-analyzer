@@ -25,8 +25,8 @@ def latest_business_day(date=None) -> str:
     return _krx().get_nearest_business_day_in_a_week(date, prev=True)
 
 
-def universe(date: str, top_n: int = 200, min_trading_value: float = 1e9) -> pd.DataFrame:
-    """시가총액 상위 top_n 종목 (KOSPI+KOSDAQ). 거래대금이 너무 적은 종목은 제외.
+def universe(date: str, top_n: int | None = None, min_trading_value: float = 1e8) -> pd.DataFrame:
+    """KOSPI+KOSDAQ 종목 (top_n 이 없거나 0이면 전 종목). 거래대금이 너무 적은 종목은 제외.
 
     반환: index=ticker, columns=[name, market_cap, trading_value]
     """
@@ -36,7 +36,8 @@ def universe(date: str, top_n: int = 200, min_trading_value: float = 1e9) -> pd.
     cap = cap[cap["trading_value"] >= min_trading_value]
     # 우선주(티커 끝자리 0이 아님)와 스팩·ETF 성격 종목 제외
     cap = cap[cap.index.str.endswith("0")]
-    cap = cap.sort_values("market_cap", ascending=False).head(top_n).copy()
+    cap = cap.sort_values("market_cap", ascending=False)
+    cap = (cap.head(top_n) if top_n else cap).copy()
     cap["name"] = [stock.get_market_ticker_name(t) for t in cap.index]
     cap = cap[~cap["name"].str.contains("스팩|리츠", na=False)]
     return cap[["name", "market_cap", "trading_value"]]

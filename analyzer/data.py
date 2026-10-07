@@ -41,7 +41,7 @@ def latest_business_day(date=None):
     return _src().latest_business_day(date)
 
 
-def universe(date, top_n=200):
+def universe(date, top_n=None):
     return _src().universe(date, top_n)
 
 

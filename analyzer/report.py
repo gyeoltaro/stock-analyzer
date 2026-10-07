@@ -16,7 +16,7 @@ def _num(x, fmt="{:.1f}"):
 def daily_report(date: str, ranked: pd.DataFrame, names: pd.Series, universe_size: int, top_n: int) -> str:
     d = pd.Timestamp(date).strftime("%Y-%m-%d")
     lines = [f"# 오늘의 종목 점수 리포트 ({d})", "", DISCLAIMER, "",
-             f"- 분석 대상: 시가총액 상위 {universe_size}개 중 필터 통과 {len(ranked)}개",
+             f"- 분석 대상: 코스피·코스닥 {universe_size}개 종목 중 필터 통과 {len(ranked)}개",
              "- 필터: 종가 > 120일 이동평균, RSI(14) < 75, 1년 이상 거래 이력",
              "- 점수: 12-1개월 모멘텀 35% · 3개월 모멘텀 15% · 가치(PER/PBR) 25% · 저변동성 25%", "",
              f"## 상위 {min(top_n, len(ranked))}개", "",
@@ -32,7 +32,7 @@ def daily_report(date: str, ranked: pd.DataFrame, names: pd.Series, universe_siz
 
 def backtest_report(summary: dict, holdings: dict, names: pd.Series, period: str) -> str:
     lines = [f"# 백테스트 결과 ({period})", "", DISCLAIMER, "",
-             "> 현재 시가총액 상위 종목으로 과거를 테스트하므로 **생존편향**이 있어 실제보다 좋게 나옵니다.", "",
+             "> 현재 상장된 종목으로만 과거를 테스트하므로(상장폐지 종목 누락) **생존편향**이 있어 실제보다 좋게 나옵니다.", "",
              "| 지표 | " + " | ".join(summary.keys()) + " |",
              "|---|" + "---:|" * len(summary)]
     keys = list(next(iter(summary.values())).keys())

@@ -4,7 +4,7 @@ import pytest
 
 from analyzer import backtest, indicators as ind
 from analyzer.report import backtest_report, daily_report
-from analyzer.scoring import ScoreConfig, score
+from analyzer.scoring import ScoreConfig, score, technical_candidates
 
 
 def make_prices(n_days=400, seed=0):
@@ -88,3 +88,9 @@ def test_reports_render():
     res = backtest.run(make_prices(600), None, ScoreConfig(top_n=2, rsi_max=101))
     md2 = backtest_report(res.summary(), res.holdings, pd.Series(dtype=str), "test")
     assert "생존편향" in md2
+
+
+def test_technical_candidates_match_score_universe():
+    close = make_prices()
+    cfg = ScoreConfig(rsi_max=101)
+    assert set(technical_candidates(close, cfg)) == set(score(close, None, cfg).index)
