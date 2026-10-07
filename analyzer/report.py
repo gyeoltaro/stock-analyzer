@@ -25,7 +25,7 @@ def daily_report(date: str, ranked: pd.DataFrame, names: pd.Series, universe_siz
     for rank, (t, r) in enumerate(ranked.head(top_n).iterrows(), 1):
         lines.append(
             f"| {rank} | {names.get(t, t)} | {t} | {r['score']:.1f} | {_num(r['close'], '{:,.0f}')} | "
-            f"{_pct(r['mom_12_1'])} | {_pct(r['mom_3'])} | {_num(r['rsi'])} | {_pct(r['vol_60'])} | "
+            f"{_pct(r['mom_12_1'])} | {_pct(r['mom_3'])} | {_num(r['rsi'])} | {_num(r['vol_60'] * 100, '{:.1f}%')} | "
             f"{_num(r.get('PER'))} | {_num(r.get('PBR'), '{:.2f}')} |")
     return "\n".join(lines) + "\n"
 
