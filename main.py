@@ -91,13 +91,19 @@ def cmd_swing_backtest(args):
     px = data.ohlcv_panel(uni.index, fetch_start, end)
     bench = data.benchmark(fetch_start, end)
     print("데이터 점검:", swing.data_quality(px))
-    cfg = swing.SwingConfig(max_positions=args.positions, cost_roundtrip=args.cost)
+    cfg = swing.SwingConfig(max_positions=args.positions, cost_roundtrip=args.cost,
+                            fixed_take_profit=args.tp, fixed_stop_loss=args.sl, fixed_max_hold=args.max_hold)
     setups = args.setups.split(",") if args.setups else swing.SETUPS
     results = {s: swing.backtest(px, s, cfg, start=test_start, benchmark=bench) for s in setups}
     label = f"{test_start}~{end}, " + (f"시가총액 상위 {args.universe}개" if args.universe else "전 종목")
+    if args.tp is not None and args.sl is not None:
+        label += f", 고정 매도 +{args.tp * 100:.0f}% 익절 / -{args.sl * 100:.0f}% 손절 / 최대 {args.max_hold}거래일"
     md = swing_backtest_report(results, label, cfg)
     REPORTS.mkdir(exist_ok=True)
-    name = "swing-backtest.md" if not args.universe else f"swing-backtest-top{args.universe}.md"
+    name = "swing-backtest" + (f"-top{args.universe}" if args.universe else "")
+    if args.tp is not None and args.sl is not None:
+        name += f"-tp{args.tp * 100:.0f}-sl{args.sl * 100:.0f}"
+    name += ".md"
     (REPORTS / name).write_text(md, encoding="utf-8")
     print(md)
 
@@ -128,7 +134,10 @@ def main():
     sb.add_argument("--universe", type=int, default=0, help="0=전 종목")
     sb.add_argument("--positions", type=int, default=5)
     sb.add_argument("--cost", type=float, default=0.005)
-    sb.add_argument("--setups", default="", help="쉼표로 구분: pullback,breakout,ma15 (기본 전부)")
+    sb.add_argument("--setups", default="", help="쉼표로 구분: pullback,breakout,ma15,ma15_hold (기본 전부)")
+    sb.add_argument("--tp", type=float, default=None, help="고정 익절 (예 0.15)")
+    sb.add_argument("--sl", type=float, default=None, help="고정 손절 (예 0.05)")
+    sb.add_argument("--max-hold", type=int, default=60, help="고정 모드 최대 보유 거래일")
     sb.set_defaults(func=cmd_swing_backtest)
     args = p.parse_args()
     print(f"데이터 소스: {data.source_name()}")

@@ -38,6 +38,10 @@ class SwingConfig:
     ma15_take_profit: float = 0.10  # 매수가 대비 +10% 익절
     ma15_max_hold: int = 10
     cost_roundtrip: float = 0.005   # 왕복 비용: 수수료 + 거래세 + 슬리피지
+    # 고정 익절/손절 모드: 설정하면 셋업별 매도 규칙 대신 매수가 대비 익절·손절·보유기간만 사용
+    fixed_take_profit: float | None = None
+    fixed_stop_loss: float | None = None
+    fixed_max_hold: int = 60
 
 
 def atr(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, window: int = 14) -> pd.DataFrame:
@@ -134,8 +138,9 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
     o, h, l = px["open"], px["high"], px["low"]
     c = px["close"].ffill()  # 평가용 (거래정지일은 직전 종가)
     sig, pri, ex = ind_["signal"][setup], ind_["priority"][setup], ind_["exit"][setup]
-    max_hold = max_hold_days(setup, cfg)
-    tp = take_profit(setup, cfg)
+    fixed = cfg.fixed_take_profit is not None and cfg.fixed_stop_loss is not None
+    max_hold = cfg.fixed_max_hold if fixed else max_hold_days(setup, cfg)
+    tp = cfg.fixed_take_profit if fixed else take_profit(setup, cfg)
     half_cost = cfg.cost_roundtrip / 2
 
     dates = c.index
@@ -197,7 +202,8 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
                     units = alloc * (1 - half_cost) / op
                     cash -= alloc
                     pos[t] = {"units": units, "entry": op, "cost": alloc, "entry_i": i,
-                              "stop": stop_price(setup, op, ind_, prev, t, cfg),
+                              "stop": op * (1 - cfg.fixed_stop_loss) if fixed
+                              else stop_price(setup, op, ind_, prev, t, cfg),
                               "target": op * (1 + tp) if tp is not None else np.inf, "exit_next": False,
                               "exit_reason": ""}
                     free -= 1
@@ -207,7 +213,7 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
                         free += 1
         # 4) 종가 평가와 다음날 청산 예약
         for t, p in pos.items():
-            if bool(ex.at[d, t]):
+            if not fixed and bool(ex.at[d, t]):
                 p["exit_next"], p["exit_reason"] = True, "매도신호"
             elif i - p["entry_i"] >= max_hold:
                 p["exit_next"], p["exit_reason"] = True, "보유기간"

@@ -139,3 +139,16 @@ def test_ma15_hold_never_exits_on_signal():
     res = swing.backtest(px, "ma15_hold", CFG)
     if len(res.trades):
         assert "매도신호" not in set(res.trades["reason"])
+
+
+def test_fixed_take_profit_and_stop_loss():
+    px = make_panel(seed=3)
+    cfg = swing.SwingConfig(min_avg_value=0, min_price=0, cost_roundtrip=0,
+                            fixed_take_profit=0.15, fixed_stop_loss=0.05, fixed_max_hold=60)
+    res = swing.backtest(px, "pullback", cfg)
+    t = res.trades
+    assert len(t)
+    assert set(t["reason"]) <= {"익절", "손절", "보유기간"}
+    assert (t.loc[t["reason"] == "손절", "return"] <= -0.05 + 1e-9).all()
+    assert (t.loc[t["reason"] == "익절", "return"] >= 0.15 - 1e-9).all()
+    assert t["days"].max() <= 60
