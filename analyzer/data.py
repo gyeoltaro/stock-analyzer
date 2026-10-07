@@ -49,7 +49,9 @@ def close_prices(tickers, start, end):
     return _src().close_prices(tickers, start, end)
 
 
-def fundamentals(date):
+def fundamentals(date, tickers=None):
+    if source_name() == "naver":
+        return _src().fundamentals(date, tickers)
     return _src().fundamentals(date)
 
 

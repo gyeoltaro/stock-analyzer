@@ -19,7 +19,7 @@ def cmd_report(args):
     print(f"기준일 {date}, 유니버스 조회 중...")
     uni = data.universe(date, args.universe)
     close = data.close_prices(uni.index, data.lookback_start(date, 420), date)
-    fund = data.fundamentals(date)
+    fund = data.fundamentals(date, list(close.columns))
     cfg = ScoreConfig(top_n=args.top)
     ranked = score(close, fund, cfg)
     md = daily_report(date, ranked, uni["name"], len(uni), args.top)

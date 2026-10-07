@@ -17,7 +17,6 @@ HEADERS = {
     "Referer": "https://finance.naver.com/",
 }
 SISE_JSON = "https://api.finance.naver.com/siseJson.naver"
-MARKET_SUM = "https://finance.naver.com/sise/sise_market_sum.naver"
 KOSPI200 = "KPI200"
 
 _session = requests.Session()
@@ -53,82 +52,66 @@ def latest_business_day(date=None) -> str:
     return ymd(df.index[-1])
 
 
+MARKET_VALUE = "https://m.stock.naver.com/api/stocks/marketValue/{market}"
+INTEGRATION = "https://m.stock.naver.com/api/stock/{ticker}/integration"
+
 _NUM = re.compile(r"[^0-9.\-]")
 
 
-def _to_num(s: str) -> float:
-    s = _NUM.sub("", s)
+def _to_num(s) -> float:
+    if s is None:
+        return float("nan")
+    s = _NUM.sub("", str(s))
     try:
         return float(s)
     except ValueError:
         return float("nan")
 
 
-def _strip_tags(html: str) -> str:
-    return re.sub(r"<[^>]+>", " ", html).strip()
-
-
-def parse_market_sum(html: str) -> pd.DataFrame:
-    """시가총액 페이지 표를 파싱한다.
-
-    기본 열 순서: 현재가, 전일비, 등락률, 액면가, 시가총액(억), 상장주식수, 외국인비율, 거래량, PER, ROE
-    """
-    out = []
-    for row in re.split(r"<tr[\s>]", html):
-        m = re.search(r'code=(\d{6})"\s*class="tltle">([^<]+)</a>', row)
-        if not m:
+def parse_market_value(payload: dict) -> pd.DataFrame:
+    """m.stock.naver.com 시가총액 순위 응답을 DataFrame으로."""
+    rows = []
+    for st in payload.get("stocks", []):
+        if st.get("stockEndType") != "stock":
             continue
-        nums = [_strip_tags(x) for x in re.findall(r'<td class="number[^"]*">(.*?)</td>', row, re.S)]
-        if len(nums) < 10:
-            continue
-        price = _to_num(nums[0])
-        volume = _to_num(nums[7])
-        out.append({
-            "ticker": m.group(1),
-            "name": m.group(2).strip(),
-            "close": price,
-            "market_cap": _to_num(nums[4]) * 1e8,
-            "trading_value": price * volume,
-            "PER": _to_num(nums[8]),
-            "ROE": _to_num(nums[9]),
+        rows.append({
+            "ticker": st["itemCode"],
+            "name": st.get("stockName", ""),
+            "close": _to_num(st.get("closePriceRaw")),
+            "market_cap": _to_num(st.get("marketValueRaw")),
+            "trading_value": _to_num(st.get("accumulatedTradingValueRaw")),
         })
-    return pd.DataFrame(out).set_index("ticker") if out else pd.DataFrame()
+    return pd.DataFrame(rows).set_index("ticker") if rows else pd.DataFrame()
 
 
-def market_sum(pages_kospi: int = 4, pages_kosdaq: int = 2) -> pd.DataFrame:
+def market_value_ranking(pages_kospi: int = 3, pages_kosdaq: int = 1, page_size: int = 100) -> pd.DataFrame:
     frames = []
-    for sosok, pages in ((0, pages_kospi), (1, pages_kosdaq)):
+    for market, pages in (("KOSPI", pages_kospi), ("KOSDAQ", pages_kosdaq)):
         for page in range(1, pages + 1):
-            r = _session.get(MARKET_SUM, params={"sosok": sosok, "page": page}, timeout=15)
+            r = _session.get(MARKET_VALUE.format(market=market),
+                             params={"page": page, "pageSize": page_size}, timeout=15)
             r.raise_for_status()
-            html = r.content.decode("euc-kr", errors="replace")
-            parsed = parse_market_sum(html)
-            if parsed.empty:
-                i = html.find("code=")
-                snippet = html[max(0, i - 600): i + 1500] if i >= 0 else html[:2000]
-                raise RuntimeError(f"시가총액 표 파싱 실패 (sosok={sosok}, page={page}, "
-                                   f"status={r.status_code}, len={len(html)}):\n{snippet}")
-            frames.append(parsed)
+            frames.append(parse_market_value(r.json()))
             time.sleep(0.2)
     df = pd.concat(frames)
+    if df.empty:
+        raise RuntimeError("네이버 시가총액 순위를 가져오지 못했습니다.")
     return df[~df.index.duplicated()]
 
 
-_market_cache: dict = {}
-
-
-def _snapshot() -> pd.DataFrame:
-    if "df" not in _market_cache:
-        _market_cache["df"] = market_sum()
-    return _market_cache["df"]
+def parse_integration(payload: dict) -> dict:
+    """종목 상세 응답에서 PER, PBR, 배당수익률 추출."""
+    info = {i.get("code"): i.get("value") for i in payload.get("totalInfos") or []}
+    return {"PER": _to_num(info.get("per")), "PBR": _to_num(info.get("pbr")),
+            "DIV": _to_num(info.get("dividendYieldRatio"))}
 
 
 def universe(date: str, top_n: int = 200, min_trading_value: float = 1e9) -> pd.DataFrame:
     """현재 시가총액 상위 종목 (네이버는 과거 시점 조회 불가, date는 무시)."""
-    df = _snapshot()
+    df = market_value_ranking()
     df = df[df["trading_value"] >= min_trading_value]
     df = df[df.index.str.endswith("0")]  # 우선주 제외
-    df = df[~df["name"].str.contains("스팩|리츠|ETN", na=False)]
+    df = df[~df["name"].str.contains("스팩|리츠", na=False)]
     return df.sort_values("market_cap", ascending=False).head(top_n)[["name", "market_cap", "trading_value"]]
 
 
@@ -149,11 +132,19 @@ def close_prices(tickers, start: str, end: str, pause: float = 0.1) -> pd.DataFr
     return pd.DataFrame(series).sort_index()
 
 
-def fundamentals(date: str) -> pd.DataFrame:
-    """현재 PER, PBR. PBR = PER x ROE / 100 으로 계산 (P/B = P/E x E/B)."""
-    df = _snapshot()[["PER", "ROE"]].copy()
-    df["PBR"] = df["PER"] * df["ROE"] / 100
-    return df
+def fundamentals(date: str, tickers=None, pause: float = 0.1) -> pd.DataFrame:
+    """현재 PER, PBR (네이버는 과거 시점 조회 불가, date는 무시)."""
+    rows = {}
+    for t in tickers or []:
+        try:
+            r = _session.get(INTEGRATION.format(ticker=t), timeout=15)
+            r.raise_for_status()
+            rows[t] = parse_integration(r.json())
+        except Exception as e:
+            print(f"[warn] {t} 재무지표 조회 실패: {e}")
+        if pause:
+            time.sleep(pause)
+    return pd.DataFrame.from_dict(rows, orient="index")
 
 
 def benchmark(start: str, end: str, index_code: str = KOSPI200) -> pd.Series:

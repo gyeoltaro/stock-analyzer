@@ -9,20 +9,19 @@ SISE = """
 ]
 """
 
-ROW = '''<tr onMouseOver="mouseOver(this)">
-<td class="no">1</td>
-<td><a href="/item/main.naver?code=005930" class="tltle">삼성전자</a></td>
-<td class="number">60,000</td>
-<td class="number"><img src="x.gif"><span class="tah p11 red02">1,000</span></td>
-<td class="number"><span class="tah p11 red01">+1.69%</span></td>
-<td class="number">100</td>
-<td class="number">3,581,869</td>
-<td class="number">5,969,783</td>
-<td class="number">50.10</td>
-<td class="number">10,000,000</td>
-<td class="number">12.50</td>
-<td class="number">-3.20</td>
-</tr>'''
+MARKET = {"stocks": [
+    {"stockEndType": "stock", "itemCode": "005930", "stockName": "삼성전자",
+     "closePriceRaw": "268500", "accumulatedTradingValueRaw": "4420466000000",
+     "marketValueRaw": "1569725806248000"},
+    {"stockEndType": "etf", "itemCode": "069500", "stockName": "KODEX 200",
+     "closePriceRaw": "1", "accumulatedTradingValueRaw": "1", "marketValueRaw": "1"},
+]}
+
+INTEGRATION = {"totalInfos": [
+    {"code": "per", "key": "PER", "value": "12.04배"},
+    {"code": "pbr", "key": "PBR", "value": "3.12배"},
+    {"code": "dividendYieldRatio", "key": "배당수익률", "value": "0.62%"},
+]}
 
 
 def test_parse_sise_json():
@@ -31,14 +30,20 @@ def test_parse_sise_json():
     assert df.index[0] == pd.Timestamp("2024-01-02")
 
 
-def test_parse_market_sum():
-    df = data_naver.parse_market_sum("<table>" + ROW + "</table>")
+def test_parse_market_value_skips_non_stock():
+    df = data_naver.parse_market_value(MARKET)
+    assert list(df.index) == ["005930"]
     r = df.loc["005930"]
     assert r["name"] == "삼성전자"
-    assert r["close"] == 60000
-    assert r["market_cap"] == 3_581_869e8
-    assert r["trading_value"] == 60000 * 10_000_000
-    assert r["PER"] == 12.5 and r["ROE"] == -3.2
+    assert r["market_cap"] == 1569725806248000
+    assert r["trading_value"] == 4420466000000
+
+
+def test_parse_integration():
+    f = data_naver.parse_integration(INTEGRATION)
+    assert f == {"PER": 12.04, "PBR": 3.12, "DIV": 0.62}
+    missing = data_naver.parse_integration({"totalInfos": [{"code": "per", "value": "N/A"}]})
+    assert pd.isna(missing["PER"]) and pd.isna(missing["PBR"])
 
 
 def test_source_selection(monkeypatch):
