@@ -21,14 +21,18 @@
 
 4. **백테스트**: 매월 말 상위 20개를 동일 비중으로 리밸런싱, 매매비용 0.3% 차감, KOSPI200과 비교
 
-## 준비
+## 데이터 소스
 
-1. [KRX 정보데이터시스템](https://data.krx.co.kr) 회원가입 (pykrx 1.2.9부터 로그인 필요)
-2. 설치
-   ```bash
-   pip install -r requirements.txt
-   export KRX_ID=아이디 KRX_PW=비밀번호
-   ```
+| 소스 | 필요한 것 | 특징 |
+|---|---|---|
+| **네이버 금융 (기본)** | 없음 | 회원가입 불필요. 비공식 경로라 네이버가 페이지를 바꾸면 멈출 수 있음. 과거 PER/PBR이 없어 백테스트에서는 가치 팩터 제외 |
+| KRX (pykrx) | data.krx.co.kr **일반 회원** 아이디/비밀번호 (카카오 로그인 불가) | 거래소 공식 데이터. 과거 PER/PBR 포함 |
+
+`KRX_ID`, `KRX_PW` 환경 변수가 있으면 KRX, 없으면 네이버를 씁니다. `DATA_SOURCE=naver` 로 강제할 수 있습니다.
+
+```bash
+pip install -r requirements.txt
+```
 
 ## 사용법
 
@@ -40,12 +44,12 @@ python -m pytest -q                # 오프라인 테스트
 
 ## 매일 자동 실행 (GitHub Actions)
 
-저장소 **Settings → Secrets and variables → Actions**에 `KRX_ID`, `KRX_PW`를 등록하면
-평일 16:40(KST)에 리포트를 만들어 `reports/`에 커밋합니다.
+평일 16:40(KST)에 리포트를 만들어 `reports/`에 커밋합니다. 기본은 네이버 데이터라 따로 설정할 것이 없습니다.
+KRX 데이터를 쓰려면 **Settings → Secrets and variables → Actions**에 `KRX_ID`, `KRX_PW`를 등록하세요.
 Actions 탭에서 `daily-report`를 수동 실행할 수도 있습니다 (`backtest` 입력 가능).
 
 ## 알려진 한계
 
 - **생존편향**: 백테스트 유니버스를 현재 시총 상위로 잡아 과거 성과가 부풀려집니다.
-- 펀더멘털(PER/PBR)은 KRX 공시 기준 후행 지표입니다.
+- 펀더멘털(PER/PBR)은 후행 지표입니다. 네이버 소스에서 PBR은 PER × ROE / 100 으로 계산합니다.
 - 거래정지·상장폐지 종목은 수익률 0%로 처리됩니다.

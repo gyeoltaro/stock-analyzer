@@ -3,7 +3,6 @@
   python main.py backtest [--years 5] [--universe 100] [--top 20]
 """
 import argparse
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -42,8 +41,12 @@ def cmd_backtest(args):
     bench = data.benchmark(fetch_start, end)
 
     cache = {}
+    if not data.has_point_in_time_fundamentals():
+        print("[안내] 네이버 데이터는 과거 PER/PBR이 없어 백테스트에서 가치 팩터를 제외합니다.")
 
     def fund_at(day):
+        if not data.has_point_in_time_fundamentals():
+            return None
         key = data.ymd(day)
         if key not in cache:
             try:
@@ -76,8 +79,7 @@ def main():
     b.add_argument("--cost", type=float, default=0.003)
     b.set_defaults(func=cmd_backtest)
     args = p.parse_args()
-    if not (os.getenv("KRX_ID") and os.getenv("KRX_PW")):
-        print("[주의] KRX_ID / KRX_PW 환경 변수가 없습니다. data.krx.co.kr 계정이 필요합니다.")
+    print(f"데이터 소스: {data.source_name()}")
     args.func(args)
 
 
