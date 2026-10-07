@@ -94,3 +94,14 @@ def test_technical_candidates_match_score_universe():
     close = make_prices()
     cfg = ScoreConfig(rsi_max=101)
     assert set(technical_candidates(close, cfg)) == set(score(close, None, cfg).index)
+
+
+def test_missing_fundamentals_do_not_help():
+    close = make_prices()
+    cfg = ScoreConfig(rsi_max=101)
+    base = pd.DataFrame({"PER": [5.0, 5.0, 5.0, 5.0], "PBR": [0.5, 0.5, 0.5, 0.5]},
+                        index=["UP", "FLAT", "DOWN", "NOISY"])
+    with_up = score(close, base, cfg)
+    no_up = base.drop(index="UP")
+    without_up = score(close, no_up, cfg)
+    assert without_up.loc["UP", "score"] < with_up.loc["UP", "score"]

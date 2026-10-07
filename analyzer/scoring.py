@@ -80,6 +80,7 @@ def score(close: pd.DataFrame, fundamentals: pd.DataFrame | None = None,
           cfg: ScoreConfig | None = None) -> pd.DataFrame:
     """필터를 통과한 종목을 점수 내림차순으로 반환한다."""
     cfg = cfg or ScoreConfig()
+    has_fund = fundamentals is not None and not fundamentals.empty
     f = compute_factors(close, fundamentals, cfg)
 
     f = f[_eligible(f, cfg)].copy()
@@ -89,7 +90,8 @@ def score(close: pd.DataFrame, fundamentals: pd.DataFrame | None = None,
     parts = {
         "mom_12_1": _pct_rank(f["mom_12_1"]),
         "mom_3": _pct_rank(f["mom_3"]),
-        "value": f["value"],
+        # 재무지표를 받았는데 값이 없으면(적자·자본잠식·정보 없음) 가치 점수 최하위
+        "value": f["value"].fillna(0.0) if has_fund else f["value"],
         "low_vol": _pct_rank(-f["vol_60"]),
     }
     total = pd.Series(0.0, index=f.index)
