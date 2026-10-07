@@ -111,4 +111,12 @@ def swing_backtest_report(results: dict, period: str, cfg) -> str:
             else:
                 cells.append(f"{x * 100:.1f}%")
         lines.append(f"| {k} | " + " | ".join(cells) + " |")
+    for k, v in results.items():
+        t = v.trades
+        if t.empty or "reason" not in t:
+            continue
+        g = t.groupby("reason")["return"].agg(["count", "mean", lambda r: (r > 0).mean()])
+        lines += ["", f"### {SETUP_NAMES[k]} 매도 이유별", "", "| 이유 | 거래 수 | 평균 수익률 | 승률 |", "|---|---:|---:|---:|"]
+        for reason, r in g.iterrows():
+            lines.append(f"| {reason} | {r['count']:,.0f} | {r['mean'] * 100:.2f}% | {r.iloc[2] * 100:.1f}% |")
     return "\n".join(lines) + "\n"

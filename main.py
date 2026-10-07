@@ -90,6 +90,7 @@ def cmd_swing_backtest(args):
     uni = data.universe(end, args.universe)
     px = data.ohlcv_panel(uni.index, fetch_start, end)
     bench = data.benchmark(fetch_start, end)
+    print("데이터 점검:", swing.data_quality(px))
     cfg = swing.SwingConfig(max_positions=args.positions, cost_roundtrip=args.cost)
     results = {s: swing.backtest(px, s, cfg, start=test_start, benchmark=bench) for s in swing.SETUPS}
     md = swing_backtest_report(results, f"{test_start}~{end}", cfg)

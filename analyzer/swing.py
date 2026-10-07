@@ -119,7 +119,7 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
     trades = []
     equity = []
 
-    def close_pos(t, price, i):
+    def close_pos(t, price, i, reason):
         nonlocal cash
         p = pos.pop(t)
         exited_today.add(t)
@@ -127,7 +127,7 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
         cash += proceeds
         trades.append({"ticker": t, "entry_date": dates[p["entry_i"]], "exit_date": dates[i],
                        "entry": p["entry"], "exit": price,
-                       "return": proceeds / p["cost"] - 1, "days": i - p["entry_i"]})
+                       "return": proceeds / p["cost"] - 1, "days": i - p["entry_i"], "reason": reason})
 
     for i in range(start_i, len(dates)):
         d = dates[i]
@@ -136,13 +136,13 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
         for t in [t for t, p in pos.items() if p["exit_next"]]:
             op = o.at[d, t]
             if not np.isnan(op):
-                close_pos(t, op, i)
+                close_pos(t, op, i, pos[t]["exit_reason"])
         # 2) 손절 (갭 하락이면 시가에 체결)
         for t in list(pos):
             p = pos[t]
             lo, op = l.at[d, t], o.at[d, t]
             if not np.isnan(lo) and lo <= p["stop"]:
-                close_pos(t, min(op, p["stop"]) if not np.isnan(op) else p["stop"], i)
+                close_pos(t, min(op, p["stop"]) if not np.isnan(op) else p["stop"], i, "손절")
         # 3) 어제 신호 → 오늘 시가 매수
         free = cfg.max_positions - len(pos)
         if free > 0:
@@ -164,21 +164,37 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
                     units = alloc * (1 - half_cost) / op
                     cash -= alloc
                     pos[t] = {"units": units, "entry": op, "cost": alloc, "entry_i": i,
-                              "stop": stop_price(setup, op, a.at[prev, t], cfg), "exit_next": False}
+                              "stop": stop_price(setup, op, a.at[prev, t], cfg), "exit_next": False,
+                              "exit_reason": ""}
                     free -= 1
                     lo = l.at[d, t]  # 매수 당일 손절 (보수적으로 체결 가정)
                     if not np.isnan(lo) and lo <= pos[t]["stop"]:
-                        close_pos(t, pos[t]["stop"], i)
+                        close_pos(t, pos[t]["stop"], i, "손절")
                         free += 1
         # 4) 종가 평가와 다음날 청산 예약
         for t, p in pos.items():
-            if bool(ex.at[d, t]) or i - p["entry_i"] >= max_hold:
-                p["exit_next"] = True
+            if bool(ex.at[d, t]):
+                p["exit_next"], p["exit_reason"] = True, "매도신호"
+            elif i - p["entry_i"] >= max_hold:
+                p["exit_next"], p["exit_reason"] = True, "보유기간"
         equity.append(cash + sum(p["units"] * c.at[d, t] for t, p in pos.items()))
 
     eq = pd.Series(equity, index=dates[start_i:])
     bench = benchmark.loc[dates[start_i]:] if benchmark is not None else None
     return SwingResult(eq, pd.DataFrame(trades), bench)
+
+
+def data_quality(px: dict) -> dict:
+    """일봉 데이터 정합성 점검 (고가/저가가 시가·종가를 감싸는지 등)."""
+    o, h, l, c = px["open"], px["high"], px["low"], px["close"]
+    valid = o.notna() & h.notna() & l.notna() & c.notna()
+    n = int(valid.values.sum())
+    bad_hi = ((h < np.maximum(o, c) * 0.999) & valid).values.sum()
+    bad_lo = ((l > np.minimum(o, c) * 1.001) & valid).values.sum()
+    gap = (o / c.shift() - 1).abs()
+    return {"rows": n, "high<max(open,close)": bad_hi / max(n, 1), "low>min(open,close)": bad_lo / max(n, 1),
+            "median |open/prev_close-1|": float(np.nanmedian(gap.values)),
+            "share |gap|>15%": float((gap > 0.15).values.sum() / max(n, 1))}
 
 
 def today_signals(px: dict, cfg: SwingConfig | None = None, top: int = 10) -> dict:
