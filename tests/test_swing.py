@@ -132,3 +132,10 @@ def test_ma15_signal_and_take_profit():
     assert "익절" in set(res.trades["reason"])
     tp = res.trades[res.trades["reason"] == "익절"].iloc[0]
     assert tp["return"] >= 0.10 - 1e-9
+
+
+def test_ma15_hold_never_exits_on_signal():
+    px = make_panel()
+    res = swing.backtest(px, "ma15_hold", CFG)
+    if len(res.trades):
+        assert "매도신호" not in set(res.trades["reason"])

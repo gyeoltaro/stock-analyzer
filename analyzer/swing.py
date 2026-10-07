@@ -15,8 +15,9 @@ import pandas as pd
 from . import indicators as ind
 from .backtest import metrics
 
-SETUPS = ("pullback", "breakout", "ma15")
-SETUP_NAMES = {"pullback": "RSI 눌림목", "breakout": "돌파", "ma15": "15일선 눌림목"}
+SETUPS = ("pullback", "breakout", "ma15", "ma15_hold")
+SETUP_NAMES = {"pullback": "RSI 눌림목", "breakout": "돌파", "ma15": "15일선 눌림목",
+               "ma15_hold": "15일선 눌림목(이탈매도 없음)"}
 
 
 @dataclass
@@ -72,10 +73,12 @@ def compute(px: dict, cfg: SwingConfig) -> dict:
 
     return {
         "signal": {"pullback": pullback.fillna(False), "breakout": breakout.fillna(False),
-                   "ma15": ma15.fillna(False)},
+                   "ma15": ma15.fillna(False), "ma15_hold": ma15.fillna(False)},
         # 여러 신호 중 우선순위: 눌림목은 더 과매도일수록, 돌파는 거래량이 클수록, 15일선은 기울기가 가파를수록
-        "priority": {"pullback": -rsi2, "breakout": vol_ratio, "ma15": slope15},
-        "exit": {"pullback": c > sma5, "breakout": c < sma10, "ma15": c < sma15},
+        "priority": {"pullback": -rsi2, "breakout": vol_ratio, "ma15": slope15, "ma15_hold": slope15},
+        # ma15_hold: 15일선 종가 이탈 매도 없이 익절·손절·보유기간으로만 청산
+        "exit": {"pullback": c > sma5, "breakout": c < sma10, "ma15": c < sma15,
+                 "ma15_hold": c.notna() & False},
         "atr": a, "sma15": sma15, "rsi2": rsi2, "vol_ratio": vol_ratio, "trade_value": trade_value,
     }
 
@@ -86,7 +89,7 @@ def stop_price(setup: str, entry: float, ind_: dict, date, ticker: str, cfg: Swi
     if setup == "breakout":
         a = ind_["atr"].at[date, ticker]
         return fallback if np.isnan(a) else entry - cfg.breakout_atr_stop * a
-    if setup == "ma15":
+    if setup in ("ma15", "ma15_hold"):
         m = ind_["sma15"].at[date, ticker]
         return fallback if np.isnan(m) else min(m * (1 - cfg.ma15_stop_below), entry * 0.999)
     return fallback
@@ -94,11 +97,11 @@ def stop_price(setup: str, entry: float, ind_: dict, date, ticker: str, cfg: Swi
 
 def max_hold_days(setup: str, cfg: SwingConfig) -> int:
     return {"pullback": cfg.pullback_max_hold, "breakout": cfg.breakout_max_hold,
-            "ma15": cfg.ma15_max_hold}[setup]
+            "ma15": cfg.ma15_max_hold, "ma15_hold": cfg.ma15_max_hold}[setup]
 
 
 def take_profit(setup: str, cfg: SwingConfig) -> float | None:
-    return cfg.ma15_take_profit if setup == "ma15" else None
+    return cfg.ma15_take_profit if setup in ("ma15", "ma15_hold") else None
 
 
 @dataclass
@@ -236,6 +239,8 @@ def today_signals(px: dict, cfg: SwingConfig | None = None, top: int = 10) -> di
     close = px["close"].loc[last]
     out = {}
     for setup in SETUPS:
+        if setup == "ma15_hold":  # 매수 신호는 ma15와 같음
+            continue
         mask = ind_["signal"][setup].loc[last]
         tickers = mask[mask].index
         pri = ind_["priority"][setup].loc[last, tickers].sort_values(ascending=False)
