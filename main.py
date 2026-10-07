@@ -92,10 +92,13 @@ def cmd_swing_backtest(args):
     bench = data.benchmark(fetch_start, end)
     print("데이터 점검:", swing.data_quality(px))
     cfg = swing.SwingConfig(max_positions=args.positions, cost_roundtrip=args.cost)
-    results = {s: swing.backtest(px, s, cfg, start=test_start, benchmark=bench) for s in swing.SETUPS}
-    md = swing_backtest_report(results, f"{test_start}~{end}", cfg)
+    setups = args.setups.split(",") if args.setups else swing.SETUPS
+    results = {s: swing.backtest(px, s, cfg, start=test_start, benchmark=bench) for s in setups}
+    label = f"{test_start}~{end}, " + (f"시가총액 상위 {args.universe}개" if args.universe else "전 종목")
+    md = swing_backtest_report(results, label, cfg)
     REPORTS.mkdir(exist_ok=True)
-    (REPORTS / "swing-backtest.md").write_text(md, encoding="utf-8")
+    name = "swing-backtest.md" if not args.universe else f"swing-backtest-top{args.universe}.md"
+    (REPORTS / name).write_text(md, encoding="utf-8")
     print(md)
 
 
@@ -125,6 +128,7 @@ def main():
     sb.add_argument("--universe", type=int, default=0, help="0=전 종목")
     sb.add_argument("--positions", type=int, default=5)
     sb.add_argument("--cost", type=float, default=0.005)
+    sb.add_argument("--setups", default="", help="쉼표로 구분: pullback,breakout,ma15 (기본 전부)")
     sb.set_defaults(func=cmd_swing_backtest)
     args = p.parse_args()
     print(f"데이터 소스: {data.source_name()}")

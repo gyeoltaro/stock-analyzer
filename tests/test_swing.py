@@ -99,3 +99,36 @@ def test_reports_render():
     res = {s: swing.backtest(px, s, CFG) for s in swing.SETUPS}
     md2 = swing_backtest_report(res, "test", CFG)
     assert "승률" in md2 or "총수익률" in md2
+
+
+def _ma15_scenario(after):
+    """꾸준한 상승 후 15일선까지 눌림 → 이후 가격 경로(after)."""
+    idx = pd.bdate_range("2022-01-03", periods=120 + len(after))
+    up = [10000 * 1.01 ** k for k in range(110)]       # 하루 1%씩 상승 (15일선보다 약 7% 위)
+    dip = [up[-1] * 0.985 ** k for k in range(1, 11)]  # 하루 1.5%씩 조정
+    close = pd.Series(up + dip + list(after), index=idx[: 120 + len(after)])
+    o = close.shift().fillna(close.iloc[0])
+    low = np.minimum(o, close) * 0.99
+    high = np.maximum(o, close) * 1.01
+    return close, o, low, high
+
+
+def test_ma15_signal_and_take_profit():
+    close, o, low, high = _ma15_scenario([])
+    px = build_panel({"A": pd.DataFrame({"시가": o, "고가": high, "저가": low, "종가": close, "거래량": 1e5})})
+    sig = swing.compute(px, CFG)["signal"]["ma15"]["A"]
+    assert sig.any(), "15일선 터치 신호가 있어야 함"
+    first = sig[sig].index[0]
+    # 신호 다음날부터 급등 → +10% 익절
+    n_after = 10
+    i = close.index.get_loc(first)
+    path = list(close.iloc[: i + 1]) + [close.iloc[i] * (1 + 0.04 * k) for k in range(1, n_after + 1)]
+    idx = pd.bdate_range("2022-01-03", periods=len(path))
+    c2 = pd.Series(path, index=idx)
+    o2 = c2.shift().fillna(c2.iloc[0])
+    px2 = build_panel({"A": pd.DataFrame({"시가": o2, "고가": np.maximum(o2, c2) * 1.01,
+                                          "저가": np.minimum(o2, c2) * 0.99, "종가": c2, "거래량": 1e5})})
+    res = swing.backtest(px2, "ma15", swing.SwingConfig(min_avg_value=0, min_price=0, cost_roundtrip=0))
+    assert "익절" in set(res.trades["reason"])
+    tp = res.trades[res.trades["reason"] == "익절"].iloc[0]
+    assert tp["return"] >= 0.10 - 1e-9

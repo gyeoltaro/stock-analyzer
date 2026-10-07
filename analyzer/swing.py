@@ -15,8 +15,8 @@ import pandas as pd
 from . import indicators as ind
 from .backtest import metrics
 
-SETUPS = ("pullback", "breakout")
-SETUP_NAMES = {"pullback": "눌림목", "breakout": "돌파"}
+SETUPS = ("pullback", "breakout", "ma15")
+SETUP_NAMES = {"pullback": "RSI 눌림목", "breakout": "돌파", "ma15": "15일선 눌림목"}
 
 
 @dataclass
@@ -31,6 +31,11 @@ class SwingConfig:
     breakout_vol_mult: float = 2.0  # 20일 평균 대비 거래량 배수
     breakout_atr_stop: float = 2.0  # 손절 = 매수가 - ATR x 배수
     breakout_max_hold: int = 15
+    ma15_touch: float = 0.01        # 저가가 15일선 +1% 이내로 내려오면 '터치'
+    ma15_runup: float = 0.05        # 최근 10일 안에 15일선보다 5% 이상 위에 있었어야 함
+    ma15_stop_below: float = 0.03   # 손절 = 신호일 15일선 x (1 - 3%)
+    ma15_take_profit: float = 0.10  # 매수가 대비 +10% 익절
+    ma15_max_hold: int = 10
     cost_roundtrip: float = 0.005   # 왕복 비용: 수수료 + 거래세 + 슬리피지
 
 
@@ -45,7 +50,7 @@ def compute(px: dict, cfg: SwingConfig) -> dict:
     c, h, l, v = px["close"], px["high"], px["low"], px["volume"]
     trade_value = (c * v).rolling(20, min_periods=20).mean()
     liquid = (trade_value >= cfg.min_avg_value) & (c >= cfg.min_price)
-    sma5, sma10, sma20 = ind.sma(c, 5), ind.sma(c, 10), ind.sma(c, 20)
+    sma5, sma10, sma15, sma20 = ind.sma(c, 5), ind.sma(c, 10), ind.sma(c, 15), ind.sma(c, 20)
     sma60, sma120 = ind.sma(c, 60), ind.sma(c, 120)
     rsi2 = ind.rsi(c, 2)
     a = atr(h, l, c)
@@ -58,21 +63,42 @@ def compute(px: dict, cfg: SwingConfig) -> dict:
     breakout = (liquid & (c > prior_high) & (vol_ratio >= cfg.breakout_vol_mult)
                 & (c > sma60) & (day_ret > 0) & (day_ret < 0.29))  # 상한가는 다음날 매수 어려움
 
+    # 15일선 눌림목: 상승 중인 15일선까지 내려왔다가(저가 터치) 종가로 지지
+    ma15_rising = sma15 > sma15.shift(5)
+    ran_up = (c / sma15 - 1).rolling(10, min_periods=10).max() >= cfg.ma15_runup
+    ma15 = (liquid & ma15_rising & (sma15 > sma60) & ran_up
+            & (l <= sma15 * (1 + cfg.ma15_touch)) & (c >= sma15))
+    slope15 = sma15 / sma15.shift(5) - 1
+
     return {
-        "signal": {"pullback": pullback.fillna(False), "breakout": breakout.fillna(False)},
-        # 여러 신호 중 우선순위: 눌림목은 더 과매도일수록, 돌파는 거래량이 클수록
-        "priority": {"pullback": -rsi2, "breakout": vol_ratio},
-        "exit": {"pullback": c > sma5, "breakout": c < sma10},
-        "atr": a, "rsi2": rsi2, "vol_ratio": vol_ratio, "trade_value": trade_value,
+        "signal": {"pullback": pullback.fillna(False), "breakout": breakout.fillna(False),
+                   "ma15": ma15.fillna(False)},
+        # 여러 신호 중 우선순위: 눌림목은 더 과매도일수록, 돌파는 거래량이 클수록, 15일선은 기울기가 가파를수록
+        "priority": {"pullback": -rsi2, "breakout": vol_ratio, "ma15": slope15},
+        "exit": {"pullback": c > sma5, "breakout": c < sma10, "ma15": c < sma15},
+        "atr": a, "sma15": sma15, "rsi2": rsi2, "vol_ratio": vol_ratio, "trade_value": trade_value,
     }
 
 
-def stop_price(setup: str, entry: float, atr_value: float, cfg: SwingConfig) -> float:
-    if setup == "pullback":
-        return entry * (1 - cfg.pullback_stop)
-    if np.isnan(atr_value):
-        return entry * (1 - cfg.pullback_stop)
-    return entry - cfg.breakout_atr_stop * atr_value
+def stop_price(setup: str, entry: float, ind_: dict, date, ticker: str, cfg: SwingConfig) -> float:
+    """신호일(date) 지표로 손절가 계산."""
+    fallback = entry * (1 - cfg.pullback_stop)
+    if setup == "breakout":
+        a = ind_["atr"].at[date, ticker]
+        return fallback if np.isnan(a) else entry - cfg.breakout_atr_stop * a
+    if setup == "ma15":
+        m = ind_["sma15"].at[date, ticker]
+        return fallback if np.isnan(m) else min(m * (1 - cfg.ma15_stop_below), entry * 0.999)
+    return fallback
+
+
+def max_hold_days(setup: str, cfg: SwingConfig) -> int:
+    return {"pullback": cfg.pullback_max_hold, "breakout": cfg.breakout_max_hold,
+            "ma15": cfg.ma15_max_hold}[setup]
+
+
+def take_profit(setup: str, cfg: SwingConfig) -> float | None:
+    return cfg.ma15_take_profit if setup == "ma15" else None
 
 
 @dataclass
@@ -102,11 +128,11 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
              benchmark: pd.Series | None = None) -> SwingResult:
     cfg = cfg or SwingConfig()
     ind_ = compute(px, cfg)
-    o, l = px["open"], px["low"]
+    o, h, l = px["open"], px["high"], px["low"]
     c = px["close"].ffill()  # 평가용 (거래정지일은 직전 종가)
     sig, pri, ex = ind_["signal"][setup], ind_["priority"][setup], ind_["exit"][setup]
-    a = ind_["atr"]
-    max_hold = cfg.pullback_max_hold if setup == "pullback" else cfg.breakout_max_hold
+    max_hold = max_hold_days(setup, cfg)
+    tp = take_profit(setup, cfg)
     half_cost = cfg.cost_roundtrip / 2
 
     dates = c.index
@@ -143,6 +169,10 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
             lo, op = l.at[d, t], o.at[d, t]
             if not np.isnan(lo) and lo <= p["stop"]:
                 close_pos(t, min(op, p["stop"]) if not np.isnan(op) else p["stop"], i, "손절")
+                continue
+            hi = h.at[d, t]
+            if tp is not None and not np.isnan(hi) and hi >= p["target"]:
+                close_pos(t, max(op, p["target"]) if not np.isnan(op) else p["target"], i, "익절")
         # 3) 어제 신호 → 오늘 시가 매수
         free = cfg.max_positions - len(pos)
         if free > 0:
@@ -164,7 +194,8 @@ def backtest(px: dict, setup: str, cfg: SwingConfig | None = None, start=None,
                     units = alloc * (1 - half_cost) / op
                     cash -= alloc
                     pos[t] = {"units": units, "entry": op, "cost": alloc, "entry_i": i,
-                              "stop": stop_price(setup, op, a.at[prev, t], cfg), "exit_next": False,
+                              "stop": stop_price(setup, op, ind_, prev, t, cfg),
+                              "target": op * (1 + tp) if tp is not None else np.inf, "exit_next": False,
                               "exit_reason": ""}
                     free -= 1
                     lo = l.at[d, t]  # 매수 당일 손절 (보수적으로 체결 가정)
@@ -213,7 +244,7 @@ def today_signals(px: dict, cfg: SwingConfig | None = None, top: int = 10) -> di
             cl = close[t]
             rows.append({
                 "ticker": t, "close": cl,
-                "stop": stop_price(setup, cl, ind_["atr"].at[last, t], cfg),
+                "stop": stop_price(setup, cl, ind_, last, t, cfg),
                 "rsi2": ind_["rsi2"].at[last, t], "vol_ratio": ind_["vol_ratio"].at[last, t],
                 "trade_value": ind_["trade_value"].at[last, t],
             })

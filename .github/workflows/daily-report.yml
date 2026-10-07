@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: "swing, report, backtest, swing-backtest (공백으로 여러 개)"
+        description: "swing, report, backtest, swing-backtest (공백으로 여러 개, 옵션은 : 로 연결 예 swing-backtest:--universe:200)"
         default: "swing report"
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
           KRX_PW: ${{ secrets.KRX_PW }}
         run: |
           for c in ${{ github.event.inputs.command || 'swing report' }}; do
-            python main.py "$c"
+            python main.py $(echo "$c" | tr ':' ' ')
           done
       - name: Commit report
         run: |
