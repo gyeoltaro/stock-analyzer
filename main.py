@@ -158,7 +158,7 @@ def cmd_dividend(args):
             print(f"[warn] {t} 시세 실패: {e}")
             continue
         try:
-            hist = data_naver.dividend_history(t, debug=(i == 0))
+            hist = list(data_naver.dividend_history(t, debug=(i == 0)).values())
         except Exception as e:
             print(f"[warn] {t} 배당 이력 실패: {e}")
             hist = []
@@ -168,6 +168,38 @@ def cmd_dividend(args):
     md = dividend.render(ranked, len(listing), args.min_yield, args.top, args.weekly)
     REPORTS.mkdir(exist_ok=True)
     (REPORTS / "dividend.md").write_text(md, encoding="utf-8")
+    print(md)
+
+
+DCA_PORTFOLIOS = {
+    "배당주 묶음 (기업은행·KT·KT&G)": {"024110": 0.4, "030200": 0.3, "033780": 0.3},
+    "배당주 묶음 (우리금융·KT·KT&G)": {"316140": 0.4, "030200": 0.3, "033780": 0.3},
+    "삼성전자": {"005930": 1.0},
+    "디바이스": {"187870": 1.0},
+}
+
+
+def cmd_dca(args):
+    from analyzer import data_naver, dca
+    end = data_naver.latest_business_day()
+    start = data.lookback_start(end, int(args.years * 365))
+    tickers = sorted({t for p in DCA_PORTFOLIOS.values() for t in p})
+    closes, dps, notes = {}, {}, []
+    for t in tickers:
+        closes[t] = data_naver.ohlcv(t, start, end)["종가"].astype(float)
+        try:
+            dps[t] = data_naver.dividend_history(t)
+        except Exception as e:
+            dps[t] = {}
+            print(f"[warn] {t} 배당 이력 실패: {e}")
+        notes.append(f"{t} 주당배당금: " + (", ".join(f"{y}년 {v:,.0f}원" for y, v in dps[t].items()) or "자료 없음"))
+    results = [dca.simulate(name, {t: closes[t] for t in w}, w, args.amount, start, end, dps)
+               for name, w in DCA_PORTFOLIOS.items()]
+    bench = data_naver.benchmark(start, end)
+    results.append(dca.simulate("코스피200 (지수)", {"K200": bench}, {"K200": 1.0}, args.amount, start, end))
+    md = dca.render(results, args.amount, start, end, notes)
+    REPORTS.mkdir(exist_ok=True)
+    (REPORTS / "dca.md").write_text(md, encoding="utf-8")
     print(md)
 
 
@@ -212,6 +244,10 @@ def main():
     dv.add_argument("--top", type=int, default=20)
     dv.add_argument("--weekly", type=int, default=50000)
     dv.set_defaults(func=cmd_dividend)
+    dc = sub.add_parser("dca", help="매주 적립식 시뮬레이션")
+    dc.add_argument("--amount", type=float, default=50000)
+    dc.add_argument("--years", type=float, default=3)
+    dc.set_defaults(func=cmd_dca)
     args = p.parse_args()
     print(f"데이터 소스: {data.source_name()}")
     args.func(args)
