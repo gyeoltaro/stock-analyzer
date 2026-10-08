@@ -140,6 +140,37 @@ def cmd_lookup(args):
     print(md)
 
 
+def cmd_dividend(args):
+    from analyzer import data_naver, dividend, lookup
+    listing = data_naver.market_value_ranking()
+    listing = listing[listing.index.str.endswith("0")].sort_values("market_cap", ascending=False).head(args.universe)
+    print(f"상위 {len(listing)}개 재무지표 조회 중...")
+    fund = data_naver.fundamentals(None, list(listing.index))
+    cand = fund[(fund["DIV"] >= args.min_yield) & (fund["PER"] > 0)].index
+    print(f"배당수익률 {args.min_yield}% 이상·흑자 {len(cand)}개, 주가·배당 이력 조회 중...")
+    end = data_naver.latest_business_day()
+    start = data.lookback_start(end, 400)
+    rows = {}
+    for i, t in enumerate(cand):
+        try:
+            st = lookup.price_stats(data_naver.ohlcv(t, start, end))
+        except Exception as e:
+            print(f"[warn] {t} 시세 실패: {e}")
+            continue
+        try:
+            hist = data_naver.dividend_history(t, debug=(i == 0))
+        except Exception as e:
+            print(f"[warn] {t} 배당 이력 실패: {e}")
+            hist = []
+        rows[t] = {"name": listing.at[t, "name"], "DIV": fund.at[t, "DIV"], "PER": fund.at[t, "PER"],
+                   "vol_1y": st["vol_1y"], "mdd_1y": st["mdd_1y"], "ret_1y": st["ret_1y"], "dps_hist": hist}
+    ranked = dividend.rank(pd.DataFrame.from_dict(rows, orient="index"))
+    md = dividend.render(ranked, len(listing), args.min_yield, args.top, args.weekly)
+    REPORTS.mkdir(exist_ok=True)
+    (REPORTS / "dividend.md").write_text(md, encoding="utf-8")
+    print(md)
+
+
 def main():
     p = argparse.ArgumentParser(description="한국 주식 규칙 기반 분석")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -175,6 +206,12 @@ def main():
     lk.add_argument("query")
     lk.add_argument("--max", type=int, default=5)
     lk.set_defaults(func=cmd_lookup)
+    dv = sub.add_parser("dividend", help="배당주 순위")
+    dv.add_argument("--universe", type=int, default=200)
+    dv.add_argument("--min-yield", type=float, default=2.5)
+    dv.add_argument("--top", type=int, default=20)
+    dv.add_argument("--weekly", type=int, default=50000)
+    dv.set_defaults(func=cmd_dividend)
     args = p.parse_args()
     print(f"데이터 소스: {data.source_name()}")
     args.func(args)

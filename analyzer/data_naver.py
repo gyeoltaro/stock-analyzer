@@ -177,6 +177,26 @@ def deal_trends(ticker: str) -> list:
     return payload.get("dealTrendInfos") or []
 
 
+FIN_ANNUAL = "https://m.stock.naver.com/api/stock/{ticker}/finance/annual"
+
+
+def dividend_history(ticker: str, debug: bool = False) -> list:
+    """연간 재무에서 주당배당금(DPS) 행을 찾아 오래된 순 목록으로. 못 찾으면 []."""
+    payload = _get_json_or_text(FIN_ANNUAL.format(ticker=ticker))
+    if debug:
+        import json
+        print("[debug] finance/annual:", json.dumps(payload, ensure_ascii=False)[:3000])
+    fin = payload.get("financeInfo") if isinstance(payload, dict) else None
+    if not fin:
+        return []
+    titles = [t.get("key") for t in fin.get("trTitleList", []) if t.get("isConsensus") != "Y"]
+    for row in fin.get("rowList", []):
+        if "주당배당금" in str(row.get("title", "")) or "DPS" in str(row.get("title", "")):
+            cols = row.get("columns", {})
+            return [_to_num((cols.get(k) or {}).get("value")) for k in titles]
+    return []
+
+
 def integration_info(ticker: str) -> dict:
     """종목 상세 지표 원문 {코드: (이름, 값, 기준일)}."""
     payload = _get_json_or_text(INTEGRATION.format(ticker=ticker))
