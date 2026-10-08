@@ -55,3 +55,12 @@ def test_source_selection(monkeypatch):
     assert data.source_name() == "krx"
     monkeypatch.setenv("DATA_SOURCE", "naver")
     assert data.source_name() == "naver"
+
+
+def test_stock_news_flattens_unknown_shape(monkeypatch):
+    payload = [{"total": 2, "items": [{"title": "<b>디바이스</b> 수주", "datetime": "202610081530", "officeName": "A"},
+                                      {"title": "디바이스 실적", "datetime": "202610071000", "officeName": "B"}]}]
+    monkeypatch.setattr(data_naver, "_get_json_or_text", lambda *a, **k: payload)
+    news = data_naver.stock_news("187870")
+    assert [n["title"] for n in news] == ["디바이스 수주", "디바이스 실적"]
+    assert news[0]["office"] == "A"

@@ -130,5 +130,17 @@ def render(query: str, rows: list) -> str:
                            "foreignRate", "highPriceOf52Weeks", "lowPriceOf52Weeks", "marketValue")]
         if raw:
             lines += ["", "원자료: " + " · ".join(raw)]
+        if r.get("deals"):
+            lines += ["", "### 최근 투자자별 순매수 (주)", "",
+                      "| 날짜 | 종가 | 거래량 | 개인 | 외국인 | 기관 |", "|---|---:|---:|---:|---:|---:|"]
+            for d in r["deals"][:7]:
+                lines.append(f"| {d.get('bizdate', '')} | {d.get('closePrice', '')} | {d.get('accumulatedTradingVolume', '')} | "
+                             f"{d.get('individualPureBuyQuant', '')} | {d.get('foreignerPureBuyQuant', '')} | "
+                             f"{d.get('organPureBuyQuant', '')} |")
+        if r.get("news"):
+            lines += ["", "### 최근 뉴스 (네이버 금융)", ""]
+            lines += [f"- {n['datetime'][:12]} {n['office']} — {n['title']}" for n in r["news"]]
+        elif r.get("news") is not None:
+            lines += ["", "### 최근 뉴스", "", "가져온 뉴스 없음"]
         lines.append("")
     return "\n".join(lines) + "\n"

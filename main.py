@@ -121,7 +121,17 @@ def cmd_lookup(args):
             continue
         info = data_naver.integration_info(t)
         st = lookup.price_stats(df)
-        rows.append({"ticker": t, "name": h["name"], "market": h["market"], "stats": st, "info": info,
+        try:
+            news = data_naver.stock_news(t)
+        except Exception as e:
+            print(f"[warn] 뉴스 조회 실패: {e}")
+            news = None
+        try:
+            deals = data_naver.deal_trends(t)
+        except Exception as e:
+            print(f"[warn] 매매동향 조회 실패: {e}")
+            deals = []
+        rows.append({"ticker": t, "name": h["name"], "market": h["market"], "news": news, "deals": deals, "stats": st, "info": info,
                      "checks": lookup.checklist(info, st, h["market_cap"])})
     md = lookup.render(args.query, rows)
     REPORTS.mkdir(exist_ok=True)

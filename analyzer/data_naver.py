@@ -143,6 +143,40 @@ def parse_integration(payload: dict) -> dict:
             "DIV": _to_num(info.get("dividendYieldRatio"))}
 
 
+NEWS = "https://m.stock.naver.com/api/news/stock/{ticker}"
+
+
+def _walk(obj):
+    if isinstance(obj, dict):
+        yield obj
+        for v in obj.values():
+            yield from _walk(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _walk(v)
+
+
+def stock_news(ticker: str, size: int = 15) -> list:
+    """종목 뉴스 [{title, datetime, office}] (응답 구조가 바뀌어도 title 이 있는 항목을 모은다)."""
+    payload = _get_json_or_text(NEWS.format(ticker=ticker), {"pageSize": size, "page": 1})
+    out, seen = [], set()
+    for d in _walk(payload):
+        title = d.get("title") or d.get("titleFull")
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        out.append({"title": re.sub(r"<[^>]+>|&quot;", "", str(title)),
+                    "datetime": str(d.get("datetime") or d.get("dateTime") or d.get("date") or ""),
+                    "office": d.get("officeName") or d.get("office") or ""})
+    return out[:size]
+
+
+def deal_trends(ticker: str) -> list:
+    """최근 일별 외국인·기관·개인 순매수 수량."""
+    payload = _get_json_or_text(INTEGRATION.format(ticker=ticker))
+    return payload.get("dealTrendInfos") or []
+
+
 def integration_info(ticker: str) -> dict:
     """종목 상세 지표 원문 {코드: (이름, 값, 기준일)}."""
     payload = _get_json_or_text(INTEGRATION.format(ticker=ticker))
